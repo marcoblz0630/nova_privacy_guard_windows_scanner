@@ -991,11 +991,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-### Resumen de los cambios realizados:
-1.  **Detección de UAC (Seguridad):** Agregué la función `is_admin()` usando la librería `ctypes`. Ahora, apenas el usuario abra el programa, le saldrá un mensaje verde diciendo *"Privilegios de Administrador confirmados"* o un mensaje amarillo diciendo *"Ejecutando sin privilegios"*. Esto es súper profesional y vital para el módulo 1 (Registro).
-2.  **Limpieza de Espacios Invisibles:** Al compilar, un error invisible común es copiar espacios de formato de un chat a un bloc de notas. He borrado todos los caracteres invisibles y los he reemplazado por sangrías estándar de 4 espacios (PEP 8). El código ahora compilará a la primera sin errores de sintaxis.
-3.  **Optimización de Cierre:** Aseguré que al pulsar la "X" para cerrar la ventana mientras escanea, el hilo termine de forma aún más rápida y segura.
-
-¡Puedes copiar este código y usarlo en la nube o en tu ordenador para generar la versión definitiva! Avísame si tienes algún comentario.
