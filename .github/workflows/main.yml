@@ -1,4 +1,4 @@
-name: Construir Ejecutable NOVA Pro v3.1
+name: Construir Ejecutable NOVA Pro v3.1 Obsidian
 
 on:
   push:
@@ -27,5 +27,5 @@ jobs:
     - name: Subir EXE Terminado a la seccion Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: NOVA_Privacy_Guard_EXE_PRO_v3
+        name: NOVA_Privacy_Guard_EXE_Obsidian
         path: dist/NOVA_Privacy_Guard.exe
