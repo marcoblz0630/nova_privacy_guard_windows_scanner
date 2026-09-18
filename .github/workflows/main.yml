@@ -1,31 +1,31 @@
-name: Construir Ejecutable NOVA Pro v3
+name: Construir Ejecutable NOVA Pro
 
 on:
-push:
-branches: [ "main", "master" ]
-workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: windows-latest
+  build:
+    runs-on: windows-latest
 
-steps:
-- name: Descargar el codigo
-  uses: actions/checkout@v4
+    steps:
+    - name: Descargar el codigo
+      uses: actions/checkout@v4
 
-- name: Configurar Python
-  uses: actions/setup-python@v5
-  with:
-    python-version: '3.10'
+    - name: Configurar Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
 
-- name: Instalar PyInstaller
-  run: python -m pip install --upgrade pip setuptools wheel pyinstaller
+    - name: Instalar PyInstaller
+      run: python -m pip install --upgrade pip setuptools wheel pyinstaller
 
-- name: Compilar a EXE (Escudo Admin + Consola Oculta)
-  run: pyinstaller --noconfirm --onefile --windowed --uac-admin --name "NOVA_Privacy_Guard" "nova_privacy_guard_windows_scanner.py"
+    - name: Compilar a EXE (Escudo Admin + Consola Oculta)
+      run: pyinstaller --noconfirm --onefile --windowed --uac-admin --name "NOVA_Privacy_Guard" "nova_privacy_guard_windows_scanner.py"
 
-- name: Subir EXE Terminado a la seccion Artifacts
-  uses: actions/upload-artifact@v4
-  with:
-    name: NOVA_Privacy_Guard_EXE_PRO_v3
-    path: dist/NOVA_Privacy_Guard.exe
+    - name: Subir EXE Terminado a la seccion Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: NOVA_Privacy_Guard_EXE_PRO_v3
+        path: dist/NOVA_Privacy_Guard.exe
