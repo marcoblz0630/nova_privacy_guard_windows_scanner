@@ -142,7 +142,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          # Sin 'cache: pip': esa cache exige requirements.txt o pyproject.toml,
+          # y este proyecto no tiene (solo usa la biblioteca estandar).
 
       - name: Instalar PyInstaller
         # Version fijada: dos compilaciones del mismo commit dan el mismo .exe
