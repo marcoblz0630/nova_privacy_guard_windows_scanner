@@ -1,31 +1,191 @@
-name: Construir Ejecutable NOVA Pro v3.1 Obsidian
+name: NOVA Privacy Guard - Verificar y Compilar
+
+# Reemplaza al main.yml anterior. La diferencia clave: antes de gastar una
+# compilacion, comprueba que el .py esta COMPLETO. El fallo tipico al pegar el
+# codigo (una clase indentada de mas, o metodos que faltan) no da la cara hasta
+# que abres el .exe; aqui se detecta en 20 segundos y el build ni siquiera
+# empieza. No necesita ningun archivo extra en el repositorio.
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main", "master"]
   workflow_dispatch:
 
+permissions:
+  contents: write        # solo lo usa el paso de Release al etiquetar
+
+env:
+  SCRIPT: nova_privacy_guard_windows_scanner.py
+  NOMBRE_EXE: NOVA_Privacy_Guard
+
 jobs:
-  build:
+  verificar:
+    name: Verificar el codigo fuente
     runs-on: windows-latest
 
     steps:
-    - name: Descargar el codigo
-      uses: actions/checkout@v4
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
 
-    - name: Configurar Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Instalar PyInstaller
-      run: python -m pip install --upgrade pip setuptools wheel pyinstaller
+      - name: Comprobar la sintaxis
+        run: python -m py_compile "${{ env.SCRIPT }}"
 
-    - name: Compilar a EXE (Escudo Admin + Consola Oculta)
-      run: pyinstaller --noconfirm --onefile --windowed --uac-admin --name "NOVA_Privacy_Guard" "nova_privacy_guard_windows_scanner.py"
+      - name: Comprobar que el archivo esta completo
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast, importlib.util, os, sys
 
-    - name: Subir EXE Terminado a la seccion Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: NOVA_Privacy_Guard_EXE_Obsidian
-        path: dist/NOVA_Privacy_Guard.exe
+          ruta = os.environ["SCRIPT"]
+          codigo = open(ruta, encoding="utf-8").read()
+
+          # 1) Sintaxis (detecta texto pegado de mas e indentaciones rotas)
+          try:
+          arbol = ast.parse(codigo)
+          except SyntaxError as e:
+              print(f"::error file={ruta},line={e.lineno}::Sintaxis: {e.msg}")
+              print(f"   -> {(e.text or '').strip()[:100]}")
+              sys.exit(1)
+
+          # 2) El modulo debe cargarse (solo define clases; no abre ventanas)
+          spec = importlib.util.spec_from_file_location("_revision", ruta)
+          modulo = importlib.util.module_from_spec(spec)
+          try:
+              spec.loader.exec_module(modulo)
+          except Exception as e:
+              print(f"::error file={ruta}::El archivo no se puede cargar: {e!r}")
+              sys.exit(1)
+
+          # 3) Cada self.metodo() usado debe existir (herencia incluida)
+          fallos = 0
+          for clase in [n for n in ast.walk(arbol) if isinstance(n, ast.ClassDef)]:
+              objeto = getattr(modulo, clase.name, None)
+              if objeto is None:
+                  continue
+              atributos = {t.attr for n in ast.walk(clase) if isinstance(n, ast.Assign)
+                           for t in n.targets if isinstance(t, ast.Attribute)
+                           and isinstance(t.value, ast.Name) and t.value.id == "self"}
+              usados = {n.func.attr for n in ast.walk(clase)
+                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and isinstance(n.func.value, ast.Name) and n.func.value.id == "self"}
+              faltan = sorted(u for u in usados
+                              if not hasattr(objeto, u) and u not in atributos)
+              if faltan:
+                  fallos += 1
+                  print(f"::error file={ruta}::Clase incompleta: {clase.name} "
+                        f"usa metodos inexistentes: {faltan}")
+
+          # 4) Estructura esperada de NOVA
+          for nombre in ("ScanEngine", "NovaPrivacyGuardApp", "main"):
+              if not hasattr(modulo, nombre):
+                  fallos += 1
+                  print(f"::error file={ruta}::Falta '{nombre}' en el archivo.")
+          motor = getattr(modulo, "ScanEngine", None)
+          modulos_esperados = ("scan_registry_startup", "scan_processes",
+                               "scan_hardware_privacy", "scan_pii_leaks",
+                               "scan_network_connections", "scan_hosts_integrity",
+                               "scan_security_defenses")
+          for paso in modulos_esperados:
+              if motor is not None and not hasattr(motor, paso):
+                  fallos += 1
+                  print(f"::error file={ruta}::ScanEngine no tiene el modulo '{paso}'.")
+                   clases = [n.name for n in arbol.body if isinstance(n, ast.ClassDef)]
+          print(f"{ruta}: {len(codigo.splitlines())} lineas | clases: {', '.join(clases)}")
+          if fallos:
+              sys.exit(1)
+          print("ARCHIVO COMPLETO: los 7 modulos y la interfaz estan presentes.")
+          PY
+
+      - name: Comprobar que solo usa la biblioteca estandar
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast, os, sys
+
+          # Si entra una dependencia externa, el .exe deja de ser autocontenido
+          PERMITIDOS = {"os", "sys", "time", "threading", "subprocess", "re",
+                        "tkinter", "winreg", "hashlib"}
+          arbol = ast.parse(open(os.environ["SCRIPT"], encoding="utf-8").read())
+          modulos = set()
+          for nodo in ast.walk(arbol):
+              if isinstance(nodo, ast.Import):
+                  modulos.update(a.name.split(".")[0] for a in nodo.names)
+              elif isinstance(nodo, ast.ImportFrom) and nodo.level == 0 and nodo.module:
+                  modulos.add(nodo.module.split(".")[0])
+          externos = sorted(modulos - PERMITIDOS)
+          print("Importa:", ", ".join(sorted(modulos)))
+          if externos:
+              print(f"::error::Dependencias externas detectadas: {externos}")
+              sys.exit(1)
+          print("Solo biblioteca estandar.")
+          PY
+
+  compilar:
+    name: Compilar el ejecutable
+    runs-on: windows-latest
+    needs: verificar          # sin verificacion no se compila
+
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar PyInstaller
+        # Version fijada: dos compilaciones del mismo commit dan el mismo .exe
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+           python -m pip install "pyinstaller~=6.10"
+
+      - name: Compilar a EXE (escudo admin + consola oculta)
+        # --uac-admin: pide elevacion al abrir. NOVA la necesita para leer
+        # HKLM (exclusiones de Defender, servicios) sin 'acceso denegado'.
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --uac-admin --clean
+          --name "${{ env.NOMBRE_EXE }}"
+          "${{ env.SCRIPT }}"
+
+      - name: Comprobar el resultado y calcular el hash
+        shell: pwsh
+        run: |
+          $exe = "dist/${{ env.NOMBRE_EXE }}.exe"
+          if (-not (Test-Path $exe)) { throw "PyInstaller no genero $exe" }
+          $tamano = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          Write-Output "Ejecutable: $exe ($tamano MB)"
+          Write-Output "SHA256: $hash"
+          "$hash  ${{ env.NOMBRE_EXE }}.exe" | Out-File "dist/SHA256.txt" -Encoding utf8
+          "SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Subir el EXE a la seccion Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NOMBRE_EXE }}_build_${{ github.run_number }}
+          path: |
+            dist/${{ env.NOMBRE_EXE }}.exe
+            dist/SHA256.txt
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publicar una Release (solo al empujar una etiqueta v*)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+        gh release create "${{ github.ref_name }}" `
+            "dist/${{ env.NOMBRE_EXE }}.exe" "dist/SHA256.txt" `
+            --title "NOVA Privacy Guard ${{ github.ref_name }}" `
+            --notes "Auditor forense local de privacidad para Windows. Solo lectura: no modifica el sistema.`n`nSHA256: $env:SHA256`n`nEl ejecutable no esta firmado: Windows SmartScreen puede avisar la primera vez. Comprueba el hash con Get-FileHash antes de ejecutarlo."
